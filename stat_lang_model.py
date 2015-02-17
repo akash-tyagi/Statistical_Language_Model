@@ -3,26 +3,32 @@ Created on 16-Jan-2015
 
 @author: akash
 '''
-from mrjob.job import MRJob
-import re
-import simplejson as json
-from operator import itemgetter
-from solution import Hw1
 from collections import defaultdict
 import math
+from operator import itemgetter
+import re
+
+from mrjob.job import MRJob
+
+import simplejson as json
+from solution import Hw1
+
 
 class StatLangModel(MRJob):
     
     @classmethod
     def setup(self):
         self.collection = {}
-        self.review={}
+        self.review = {}
         self.lamb = 0.7
         self.query = 'reputation'
+        self.total = 0
         
-        for line in open('collection_count.txt','r'):
+        for line in open('collection_count.txt', 'r'):
             word, count = line.split('\t')
-            self.collection[word] = count
+            self.collection[word[1:-1]] = count
+            self.total += 1
+        print self.total
                 
     def mapper_get_words(self, _, line):
         # yield each word in the line
@@ -34,37 +40,29 @@ class StatLangModel(MRJob):
                 words[word] += 1
             else:
                 words[word] = 1
-            total +=1
+            total += 1
+        prob = (1 - self.lamb) * float(self.collection[self.query]) / self.total
         if self.query in words.keys():
             print text 
-            prob = math.log(float(words[self.query])/total)
-        else :
-            prob = 0
-        yield json.loads(line)['review_id'], prob
+            prob += self.lamb * float(words[self.query]) / total 
+        yield 'key', (json.loads(line)['review_id'], prob)
             
 
 #     def combiner_count_words(self, word, counts):
 #         # optimization: sum the words we've seen so far
 #         yield (word, sum(counts))
 
-    def reducer_count_words(self, word, counts):
-        # send all (num_occurrences, word) pairs to the same reducer.
-        # num_occurrences is so we can easily use Python's max() function.
-        yield None, (word, sum(counts))
-
-    # discard the key; it is just None
-    def reducer_find_max_word(self, _, review_prob_pairs):
-        list = sorted(review_prob_pairs, key=itemgetter(1), reverse=True)[:10]
+    def reducer_count_words(self, _,rev_prob_pair):
+        list = sorted(rev_prob_pair, key=itemgetter(1),reverse=True)[:5]
         for a in list:
             print a
-        yield "max words:", list
-    
+        yield "max probs:", list
+
     def steps(self):
         return [
             self.mr(mapper=self.mapper_get_words,
 #                     combiner=self.combiner_count_words,
-                    reducer=self.reducer_count_words),
-            self.mr(reducer=self.reducer_find_max_word)
+                    reducer=self.reducer_count_words)
         ]
 
 
